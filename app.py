@@ -3,6 +3,7 @@ from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 import json as _json
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -141,7 +142,7 @@ def search_anime(keyword):
             year = ""
             rating = ""
             total_eps = ""
-            
+
             for span in item.select(".info span"):
                 cls = span.get("class", [])
                 if "sub" in cls: sub = span.get_text(strip=True)
@@ -186,9 +187,9 @@ def scrape_home():
             title = title_tag.get_text(strip=True) if title_tag else ""
             japanese_title = title_tag.get("data-jp", "") if title_tag else ""
             description = slide.select_one("p.desc").get_text(strip=True) if slide.select_one("p.desc") else ""
-            
+
             sub, dub, anime_type = parse_info_spans(slide.select_one(".info"))
-            
+
             genres = ""
             info_el = slide.select_one(".info")
             if info_el:
@@ -230,9 +231,9 @@ def scrape_home():
             href = item.select_one("a.poster").get("href", "") if item.select_one("a.poster") else ""
             episode = href.split("#ep=")[-1] if "#ep=" in href else ""
             href = href.split("#ep=")[0]
-            
+
             sub, dub, anime_type = parse_info_spans(item.select_one(".info"))
-            
+
             if title_tag:
                 latest.append({
                     "title": title_tag.get_text(strip=True),
@@ -254,7 +255,7 @@ def scrape_home():
                 style = item.get("style", "")
                 poster = style.split("url(")[1].split(")")[0] if "url(" in style else ""
                 sub, dub, anime_type = parse_info_spans(item.select_one(".info"))
-                
+
                 items.append({
                     "rank": item.select_one(".num").get_text(strip=True) if item.select_one(".num") else "",
                     "title": item.select_one(".detail .title").get_text(strip=True) if item.select_one(".detail .title") else "",
@@ -286,7 +287,7 @@ def scrape_anime_info(slug):
 
         info_el = soup.select_one(".main-entity .info")
         sub, dub, atype = parse_info_spans(info_el)
-        
+
         detail = {}
         for div in soup.select(".detail > div > div"):
             text = div.get_text(separator="|", strip=True)
@@ -333,7 +334,7 @@ def fetch_episodes(ani_id):
     try:
         encoded = encode_token(ani_id)
         if not encoded: return {"error": "Token encryption failed"}, 500
-        
+
         response = requests.get(ANIMEKAI_EPISODES_URL, params={"ani_id": ani_id, "_": encoded}, headers=AJAX_HEADERS, timeout=15)
         response.raise_for_status()
         html = response.json().get("result", "")
@@ -360,7 +361,7 @@ def fetch_servers(ep_token):
     try:
         encoded = encode_token(ep_token)
         if not encoded: return {"error": "Token encryption failed"}, 500
-        
+
         response = requests.get(ANIMEKAI_SERVERS_URL, params={"token": ep_token, "_": encoded}, headers=AJAX_HEADERS, timeout=15)
         response.raise_for_status()
         html = response.json().get("result", "")
@@ -375,7 +376,7 @@ def fetch_servers(ep_token):
                 "episode_id": s.get("data-eid", ""),
                 "link_id": s.get("data-lid", ""),
             } for s in group.select(".server")]
-        
+
         return {
             "watching": soup.select_one(".server-note p").get_text(strip=True) if soup.select_one(".server-note p") else "",
             "servers": servers
@@ -391,7 +392,7 @@ def resolve_source(link_id):
         resp = requests.get(ANIMEKAI_LINKS_VIEW_URL, params={"id": link_id, "_": encoded}, headers=AJAX_HEADERS, timeout=15)
         resp.raise_for_status()
         encrypted_result = resp.json().get("result", "")
-        
+
         embed_data = decode_kai(encrypted_result)
         if not embed_data: return {"error": "Embed decryption failed"}, 500
         embed_url = embed_data.get("url", "")
@@ -400,6 +401,7 @@ def resolve_source(link_id):
         video_id = embed_url.rstrip("/").split("/")[-1]
         embed_base = embed_url.rsplit("/e/", 1)[0] if "/e/" in embed_url else embed_url.rsplit("/", 1)[0]
 
+        # megaup.nl requires specific referrer/origin headers to avoid 403
         megaup_headers = {
             **HEADERS,
             "Referer": embed_url,
@@ -424,6 +426,15 @@ def resolve_source(link_id):
     except Exception as e:
         return {"error": str(e)}, 500
 
+def _safe_response(res):
+    """Handle both dict and tuple returns from scraper functions safely."""
+    if isinstance(res, tuple):
+        body, status = res[0], res[1]
+        return jsonify(body), status
+    if isinstance(res, dict) and "error" in res:
+        return jsonify(res), 500
+    return None
+
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({
@@ -444,41 +455,54 @@ def index():
 @app.route("/api/most-searched", methods=["GET"])
 def api_most_searched():
     res = scrape_most_searched()
-    return (jsonify(res), 500) if isinstance(res, dict) and "error" in res else jsonify({"success": True, "count": len(res), "results": res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, "count": len(res), "results": res})
 
 @app.route("/api/search", methods=["GET"])
 def api_search():
     kw = request.args.get("keyword", "").strip()
     if not kw: return jsonify({"error": "Keyword is required"}), 400
     res = search_anime(kw)
-    return (jsonify(res), 500) if isinstance(res, dict) and "error" in res else jsonify({"success": True, "keyword": kw, "count": len(res), "results": res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, "keyword": kw, "count": len(res), "results": res})
 
 @app.route("/api/home", methods=["GET"])
 def api_home():
     res = scrape_home()
-    return (jsonify(res), 500) if isinstance(res, dict) and "error" in res else jsonify({"success": True, **res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, **res})
 
 @app.route("/api/anime/<slug>", methods=["GET"])
 def api_anime_info(slug):
     res = scrape_anime_info(slug)
-    return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, **res})
 
 @app.route("/api/episodes/<ani_id>", methods=["GET"])
 def api_episodes(ani_id):
     res = fetch_episodes(ani_id)
-    return (jsonify(res), 500) if isinstance(res, dict) and "error" in res else jsonify({"success": True, "ani_id": ani_id, "count": len(res), "episodes": res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, "ani_id": ani_id, "count": len(res), "episodes": res})
 
 @app.route("/api/servers/<ep_token>", methods=["GET"])
 def api_servers(ep_token):
     res = fetch_servers(ep_token)
-    return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, **res})
 
 @app.route("/api/source/<link_id>", methods=["GET"])
 def api_source(link_id):
     res = resolve_source(link_id)
-    return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
+    safe = _safe_response(res)
+    if safe is not None: return safe
+    return jsonify({"success": True, **res})
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
