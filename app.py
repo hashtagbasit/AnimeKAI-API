@@ -400,15 +400,14 @@ def resolve_source(link_id):
         video_id = embed_url.rstrip("/").split("/")[-1]
         embed_base = embed_url.rsplit("/e/", 1)[0] if "/e/" in embed_url else embed_url.rsplit("/", 1)[0]
 
-# megaup.nl requires specific referrer/origin headers to avoid 403
-megaup_headers = {
-    **HEADERS,
-    "Referer": embed_url,
-    "Origin": embed_base,
-    "X-Requested-With": "XMLHttpRequest",
-    "Accept": "application/json, text/plain, */*",
-}
-media_resp = requests.get(f"{embed_base}/media/{video_id}", headers=megaup_headers, timeout=15)
+        megaup_headers = {
+            **HEADERS,
+            "Referer": embed_url,
+            "Origin": embed_base,
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/plain, */*",
+        }
+        media_resp = requests.get(f"{embed_base}/media/{video_id}", headers=megaup_headers, timeout=15)
         media_resp.raise_for_status()
         encrypted_media = media_resp.json().get("result", "")
 
@@ -462,10 +461,8 @@ def api_home():
 @app.route("/api/anime/<slug>", methods=["GET"])
 def api_anime_info(slug):
     res = scrape_anime_info(slug)
-    if isinstance(res, tuple):
-        return jsonify(res[0]), res[1]
     return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
-    
+
 @app.route("/api/episodes/<ani_id>", methods=["GET"])
 def api_episodes(ani_id):
     res = fetch_episodes(ani_id)
@@ -474,15 +471,11 @@ def api_episodes(ani_id):
 @app.route("/api/servers/<ep_token>", methods=["GET"])
 def api_servers(ep_token):
     res = fetch_servers(ep_token)
-    if isinstance(res, tuple):
-        return jsonify(res[0]), res[1]
     return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
 
 @app.route("/api/source/<link_id>", methods=["GET"])
 def api_source(link_id):
     res = resolve_source(link_id)
-    if isinstance(res, tuple):
-        return jsonify(res[0]), res[1]
     return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
 
 if __name__ == "__main__":
