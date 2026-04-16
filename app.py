@@ -399,7 +399,16 @@ def resolve_source(link_id):
 
         video_id = embed_url.rstrip("/").split("/")[-1]
         embed_base = embed_url.rsplit("/e/", 1)[0] if "/e/" in embed_url else embed_url.rsplit("/", 1)[0]
-        media_resp = requests.get(f"{embed_base}/media/{video_id}", headers=HEADERS, timeout=15)
+
+# megaup.nl requires specific referrer/origin headers to avoid 403
+megaup_headers = {
+    **HEADERS,
+    "Referer": embed_url,
+    "Origin": embed_base,
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/plain, */*",
+}
+media_resp = requests.get(f"{embed_base}/media/{video_id}", headers=megaup_headers, timeout=15)
         media_resp.raise_for_status()
         encrypted_media = media_resp.json().get("result", "")
 
