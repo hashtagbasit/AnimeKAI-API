@@ -453,8 +453,10 @@ def api_home():
 @app.route("/api/anime/<slug>", methods=["GET"])
 def api_anime_info(slug):
     res = scrape_anime_info(slug)
+    if isinstance(res, tuple):
+        return jsonify(res[0]), res[1]
     return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
-
+    
 @app.route("/api/episodes/<ani_id>", methods=["GET"])
 def api_episodes(ani_id):
     res = fetch_episodes(ani_id)
@@ -463,11 +465,15 @@ def api_episodes(ani_id):
 @app.route("/api/servers/<ep_token>", methods=["GET"])
 def api_servers(ep_token):
     res = fetch_servers(ep_token)
+    if isinstance(res, tuple):
+        return jsonify(res[0]), res[1]
     return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
 
 @app.route("/api/source/<link_id>", methods=["GET"])
 def api_source(link_id):
     res = resolve_source(link_id)
+    if isinstance(res, tuple):
+        return jsonify(res[0]), res[1]
     return (jsonify(res), 500) if "error" in res else jsonify({"success": True, **res})
 
 if __name__ == "__main__":
